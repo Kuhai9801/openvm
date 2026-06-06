@@ -339,7 +339,8 @@ fn aot_auipc_preserves_full_24_bit_transpiled_immediate() {
     let imm = 0x01_0000;
     let pc = 0;
     let expected_rd = u32::from_le_bytes(run_auipc(pc, imm));
-    let inst = Instruction::from_usize(AUIPC.global_opcode(), [4, 0, imm as usize, 1, 0]);
+    let inst: Instruction<F> =
+        Instruction::from_usize(AUIPC.global_opcode(), [4, 0, imm as usize, 1, 0]);
 
     let asm = executor
         .generate_x86_asm(&inst, pc)

@@ -595,14 +595,16 @@ fn aot_dispatch_rejects_dead_pc_slot() {
     let interpreter = executor
         .interpreter_instance(&exe)
         .expect("interpreter build must succeed");
-    let interpreter_err = interpreter
-        .execute(vec![], None)
-        .expect_err("interpreter must reject execution at a dead PC slot");
+    let interpreter_err = match interpreter.execute(vec![], None) {
+        Ok(_) => panic!("interpreter must reject execution at a dead PC slot"),
+        Err(err) => err,
+    };
 
     let aot_instance = executor.aot_instance(&exe).expect("AOT build must succeed");
-    let aot_err = aot_instance
-        .execute(vec![], None)
-        .expect_err("AOT must reject execution at the same dead PC slot");
+    let aot_err = match aot_instance.execute(vec![], None) {
+        Ok(_) => panic!("AOT must reject execution at the same dead PC slot"),
+        Err(err) => err,
+    };
 
     assert_eq!(
         format!("{interpreter_err:?}"),
