@@ -573,12 +573,12 @@ fn aot_unsigned_load_to_x0_preserves_zero_register(
 fn aot_dispatch_rejects_dead_pc_slot() {
     let program = Program::new_without_debug_infos_with_option(
         &[
-            Some(Instruction::from_usize(
+            Some(Instruction::<F>::from_usize(
                 ADD.global_opcode(),
                 [4, 0, 7, RV32_REGISTER_AS as usize, RV32_IMM_AS as usize],
             )),
             None,
-            Some(Instruction::from_isize(
+            Some(Instruction::<F>::from_isize(
                 SystemOpcode::TERMINATE.global_opcode(),
                 0,
                 0,
