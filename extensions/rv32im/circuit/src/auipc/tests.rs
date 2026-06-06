@@ -7,6 +7,8 @@ use openvm_circuit::{
     },
     system::memory::{offline_checker::MemoryBridge, SharedMemoryHelper},
 };
+#[cfg(feature = "aot")]
+use openvm_circuit::arch::AotExecutor;
 use openvm_circuit_primitives::bitwise_op_lookup::{
     BitwiseOperationLookupAir, BitwiseOperationLookupBus, BitwiseOperationLookupChip,
     SharedBitwiseOperationLookupChip,
@@ -328,6 +330,25 @@ fn run_auipc_sanity_test() {
     let rd_data = run_auipc(initial_pc, imm);
 
     assert_eq!(rd_data, [210, 107, 113, 186]);
+}
+
+#[cfg(feature = "aot")]
+#[test]
+fn aot_auipc_preserves_full_24_bit_transpiled_immediate() {
+    let executor = Rv32AuipcExecutor::new(Rv32RdWriteAdapterExecutor::new());
+    let imm = 0x01_0000;
+    let pc = 0;
+    let expected_rd = u32::from_le_bytes(run_auipc(pc, imm));
+    let inst = Instruction::from_usize(AUIPC.global_opcode(), [4, 0, imm as usize, 1, 0]);
+
+    let asm = executor
+        .generate_x86_asm(&inst, pc)
+        .expect("AUIPC AOT generation should accept a valid register write");
+
+    assert!(
+        asm.contains(&expected_rd.to_string()),
+        "AUIPC AOT assembly must materialize rd={expected_rd} for imm={imm:#x}; asm:\n{asm}"
+    );
 }
 
 // ////////////////////////////////////////////////////////////////////////////////////

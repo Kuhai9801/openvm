@@ -1,5 +1,7 @@
 use std::{array, borrow::BorrowMut, sync::Arc};
 
+#[cfg(feature = "aot")]
+use openvm_circuit::arch::{VmExecutor, VmState};
 use openvm_circuit::{
     arch::{
         testing::{memory::gen_pointer, TestBuilder, TestChipHarness, VmChipTestBuilder},
@@ -11,6 +13,15 @@ use openvm_circuit::{
 };
 use openvm_circuit_primitives::var_range::VariableRangeCheckerChip;
 use openvm_instructions::{instruction::Instruction, riscv::RV32_REGISTER_AS, LocalOpcode};
+#[cfg(feature = "aot")]
+use openvm_instructions::{
+    exe::{SparseMemoryImage, VmExe},
+    program::Program,
+    riscv::RV32_IMM_AS,
+    SystemOpcode,
+};
+#[cfg(feature = "aot")]
+use openvm_rv32im_transpiler::BaseAluOpcode::ADD;
 use openvm_rv32im_transpiler::Rv32LoadStoreOpcode::{self, *};
 use openvm_stark_backend::{
     p3_air::BaseAir,
@@ -46,6 +57,8 @@ use crate::{
     test_utils::get_verification_error,
     LoadStoreFiller, Rv32LoadStoreAir, Rv32LoadStoreExecutor,
 };
+#[cfg(feature = "aot")]
+use crate::Rv32ImConfig;
 
 const IMM_BITS: usize = 16;
 const MAX_INS_CAPACITY: usize = 128;
@@ -499,6 +512,103 @@ fn run_loadbu_sanity_test() {
     assert_eq!(write_data1, [74, 0, 0, 0]);
     assert_eq!(write_data2, [186, 0, 0, 0]);
     assert_eq!(write_data3, [29, 0, 0, 0]);
+}
+
+#[cfg(feature = "aot")]
+fn run_rv32im_program(
+    program: Program<F>,
+    init_memory: SparseMemoryImage,
+    pc_start: u32,
+) -> VmState<F> {
+    let exe = VmExe::new(program)
+        .with_init_memory(init_memory)
+        .with_pc_start(pc_start);
+    let config = Rv32ImConfig::default();
+    let executor = VmExecutor::new(config).expect("failed to create Rv32IM executor");
+    let aot_instance = executor.aot_instance(&exe).expect("AOT build must succeed");
+
+    aot_instance
+        .execute(vec![], None)
+        .expect("AOT execution must succeed")
+}
+
+#[cfg(feature = "aot")]
+fn read_register(state: &VmState<F>, offset: usize) -> u32 {
+    let bytes = unsafe { state.memory.read::<u8, 4>(RV32_REGISTER_AS, offset as u32) };
+    u32::from_le_bytes(bytes)
+}
+
+#[cfg(feature = "aot")]
+#[test_case(LOADW, [0x44, 0x33, 0x22, 0x11], 0x1122_3344)]
+#[test_case(LOADHU, [0x44, 0x33, 0x22, 0x11], 0x3344)]
+#[test_case(LOADBU, [0x44, 0x33, 0x22, 0x11], 0x44)]
+fn aot_unsigned_load_to_x0_preserves_zero_register(
+    opcode: Rv32LoadStoreOpcode,
+    memory_bytes: [u8; RV32_REGISTER_NUM_LIMBS],
+    loaded_value: u32,
+) {
+    let mut init_memory = SparseMemoryImage::new();
+    for (offset, byte) in memory_bytes.into_iter().enumerate() {
+        init_memory.insert((2, offset as u32), byte);
+    }
+    let instructions = vec![
+        Instruction::from_usize(
+            opcode.global_opcode(),
+            [0, 4, 0, RV32_REGISTER_AS as usize, 2, 0, 0],
+        ),
+        Instruction::from_isize(SystemOpcode::TERMINATE.global_opcode(), 0, 0, 0, 0, 0),
+    ];
+
+    let state = run_rv32im_program(Program::from_instructions(&instructions), init_memory, 0);
+
+    assert_eq!(
+        read_register(&state, 0),
+        0,
+        "{opcode:?} into x0 must preserve x0, not materialize loaded value {loaded_value:#x}"
+    );
+}
+
+#[cfg(feature = "aot")]
+#[test]
+fn aot_dispatch_rejects_dead_pc_slot() {
+    let program = Program::new_without_debug_infos_with_option(
+        &[
+            Some(Instruction::from_usize(
+                ADD.global_opcode(),
+                [4, 0, 7, RV32_REGISTER_AS as usize, RV32_IMM_AS as usize],
+            )),
+            None,
+            Some(Instruction::from_isize(
+                SystemOpcode::TERMINATE.global_opcode(),
+                0,
+                0,
+                0,
+                0,
+                0,
+            )),
+        ],
+        0,
+    );
+    let exe = VmExe::new(program).with_pc_start(4);
+    let config = Rv32ImConfig::default();
+    let executor = VmExecutor::new(config).expect("failed to create Rv32IM executor");
+    let interpreter = executor
+        .interpreter_instance(&exe)
+        .expect("interpreter build must succeed");
+    let interpreter_err = interpreter
+        .execute(vec![], None)
+        .expect_err("interpreter must reject execution at a dead PC slot");
+
+    let aot_instance = executor.aot_instance(&exe).expect("AOT build must succeed");
+    let aot_err = aot_instance
+        .execute(vec![], None)
+        .expect_err("AOT must reject execution at the same dead PC slot");
+
+    assert_eq!(
+        format!("{interpreter_err:?}"),
+        format!("{aot_err:?}"),
+        "AOT and interpreter must agree on dead PC dispatch"
+    );
 }
 
 // ////////////////////////////////////////////////////////////////////////////////////
