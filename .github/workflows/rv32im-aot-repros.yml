@@ -15,7 +15,18 @@ env:
 
 jobs:
   repros:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: AUIPC AOT repro
+            test: aot_auipc_preserves_full_24_bit_transpiled_immediate
+          - name: x0 unsigned-load AOT repro
+            test: aot_unsigned_load_to_x0_preserves_zero_register
+          - name: dead-PC dispatch AOT repro
+            test: aot_dispatch_rejects_dead_pc_slot
     runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -28,14 +39,6 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Run AUIPC AOT repro
+      - name: Run ${{ matrix.name }}
         run: |
-          cargo test -p openvm-rv32im-circuit --features aot aot_auipc_preserves_full_24_bit_transpiled_immediate -- --nocapture
-
-      - name: Run x0 unsigned-load AOT repro
-        run: |
-          cargo test -p openvm-rv32im-circuit --features aot aot_unsigned_load_to_x0_preserves_zero_register -- --nocapture
-
-      - name: Run dead-PC dispatch AOT repro
-        run: |
-          cargo test -p openvm-rv32im-circuit --features aot aot_dispatch_rejects_dead_pc_slot -- --nocapture
+          cargo test -p openvm-rv32im-circuit --features aot ${{ matrix.test }} -- --nocapture
