@@ -1,0 +1,41 @@
+name: RV32IM AOT Repros
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or SHA to test
+        required: true
+        default: aot-rv32im-repros
+
+env:
+  CARGO_TERM_COLOR: always
+  OPENVM_FAST_TEST: "1"
+  OPENVM_SKIP_DEBUG: "1"
+
+jobs:
+  repros:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run AUIPC AOT repro
+        run: |
+          cargo test -p openvm-rv32im-circuit --features aot aot_auipc_preserves_full_24_bit_transpiled_immediate -- --nocapture
+
+      - name: Run x0 unsigned-load AOT repro
+        run: |
+          cargo test -p openvm-rv32im-circuit --features aot aot_unsigned_load_to_x0_preserves_zero_register -- --nocapture
+
+      - name: Run dead-PC dispatch AOT repro
+        run: |
+          cargo test -p openvm-rv32im-circuit --features aot aot_dispatch_rejects_dead_pc_slot -- --nocapture
